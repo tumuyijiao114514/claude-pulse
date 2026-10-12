@@ -93,7 +93,7 @@ if (Test-Path (Join-Path $env:LOCALAPPDATA "Dinotty") -or (Test-Path (Join-Path 
 }
 
 # 4. Patch CC Switch (if present)
-Write-Color "==> [4/4] Checking CC Switch configuration..." Yellow
+Write-Color "==> [4/5] Checking CC Switch configuration..." Yellow
 $CcSwitchDb = Join-Path $env:USERPROFILE ".cc-switch\cc-switch.db"
 $PythonScript = Join-Path $PSScriptRoot "scripts\patch-ccswitch.py"
 
@@ -113,16 +113,26 @@ if (Test-Path $CcSwitchDb) {
     Write-Color "  - CC Switch not detected, skipped." Gray
 }
 
+# 5. Upgrade Windows Terminal Appearance & Shell Prompt
+Write-Color "==> [5/5] Upgrading Windows Terminal Appearance & Shell Prompt..." Yellow
+$SetupTermScript = Join-Path $PSScriptRoot "scripts\setup-terminal.ps1"
+if (Test-Path $SetupTermScript) {
+    try {
+        & $SetupTermScript
+    } catch {
+        Write-Color "  ! Terminal setup notice: $($_.Exception.Message)" Yellow
+    }
+}
+
 Write-Color @"
 
 =======================================================
  🎉 Installation Completed Successfully!
 =======================================================
- 1. Launch or restart Claude Code in your terminal.
- 2. You will now see the high-precision, multi-protocol
-    statusline showing:
+ 1. Windows Terminal: Tokyo Night + Acrylic 88% + Cascadia Code
+ 2. Shell Prompt: Ultra-fast minimalist prompt with Git status
+ 3. Claude Code: Universal multi-protocol statusline
     📦 Model │ Ctx Progress │ 💾 Cache Hit Rate % │ TPS
- 3. If running Dinotty, look at the bottom-right status bar
-    for the live ⚡ Cache sparkline monitor!
+ 4. Dinotty Terminal: Live ⚡ Cache Sparkline Monitor ready!
 =======================================================
 "@ Green

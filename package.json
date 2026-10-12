@@ -1,12 +1,13 @@
 {
   "name": "claude-pulse",
-  "version": "1.0.0",
-  "description": "⚡ Universal Multi-Protocol StatusLine, Cache Telemetry & Dinotty Native Plugin for Claude Code",
+  "version": "1.1.0",
+  "description": "⚡ Universal Multi-Protocol StatusLine, Context Self-Learning, Windows Terminal & Shell Aesthetics Suite for Claude Code",
   "main": "scripts/statusline.cjs",
   "scripts": {
     "test": "node scripts/statusline.cjs",
     "install:win": "powershell -ExecutionPolicy Bypass -File ./install.ps1",
     "install:unix": "bash ./install.sh",
+    "setup:terminal": "powershell -ExecutionPolicy Bypass -File ./scripts/setup-terminal.ps1",
     "patch:ccswitch": "python scripts/patch-ccswitch.py"
   },
   "keywords": [
