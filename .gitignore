@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+Thumbs.db
+*.log
+*.bak*
+cache_stats.json
+last_tps.json
+model_context_cache.json
+.vscode/
+.idea/

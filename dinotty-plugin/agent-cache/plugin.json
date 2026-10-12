@@ -1,0 +1,12 @@
+{
+  "id": "agent-cache",
+  "name": "Agent Cache Monitor",
+  "name_zh": "Agent 缓存监控",
+  "version": "1.0.0",
+  "description": "Real-time AI prompt cache hit rate and token telemetry in Dinotty status bar",
+  "description_zh": "在 Dinotty 状态栏实时监控 AI Agent 提示词缓存命中率与 Token 消耗",
+  "category": "system",
+  "icon": "zap",
+  "entry": "./main.js",
+  "permissions": ["workspace.read"]
+}

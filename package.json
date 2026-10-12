@@ -1,0 +1,31 @@
+{
+  "name": "claude-pulse",
+  "version": "1.0.0",
+  "description": "⚡ Universal Multi-Protocol StatusLine, Cache Telemetry & Dinotty Native Plugin for Claude Code",
+  "main": "scripts/statusline.cjs",
+  "scripts": {
+    "test": "node scripts/statusline.cjs",
+    "install:win": "powershell -ExecutionPolicy Bypass -File ./install.ps1",
+    "install:unix": "bash ./install.sh",
+    "patch:ccswitch": "python scripts/patch-ccswitch.py"
+  },
+  "keywords": [
+    "claude-code",
+    "statusline",
+    "dinotty",
+    "cc-switch",
+    "prompt-cache",
+    "deepseek",
+    "openai",
+    "gemini",
+    "anthropic",
+    "ai-agent",
+    "telemetry"
+  ],
+  "author": "tumuyijiao114514",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tumuyijiao114514/claude-pulse.git"
+  }
+}
