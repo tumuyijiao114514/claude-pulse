@@ -132,7 +132,7 @@ Write-Color @"
  1. Windows Terminal: Tokyo Night + Acrylic 88% + Cascadia Code
  2. Shell Prompt: Ultra-fast minimalist prompt with Git status
  3. Claude Code: Universal multi-protocol statusline
-    📦 Model │ Ctx Progress │ 💾 Cache Hit Rate % │ TPS
+    📦 Model │ 🧠 Effort │ Ctx Progress │ 💾 Cache Hit Rate %
  4. Dinotty Terminal: Live ⚡ Cache Sparkline Monitor ready!
 =======================================================
 "@ Green

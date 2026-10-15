@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Release-v1.1.0-blue?style=flat-square" alt="Version">
+  <img src="https://img.shields.io/badge/Release-v1.2.0-blue?style=flat-square" alt="Version">
   <img src="https://img.shields.io/badge/Node.js-%3E%3D18.0.0-339933?style=flat-square&logo=node.js" alt="Node.js">
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/Windows%20Terminal-Tokyo%20Night%20Acrylic-1abc9c?style=flat-square" alt="Windows Terminal">
@@ -21,20 +21,20 @@
 
 **Claude Pulse** 是一套专为 **Claude Code CLI** 与现代开发终端打造的**全能状态栏、AI 遥测与终端美化套件**。
 
-无论你使用的是 Anthropic 原生 Claude 模型，还是通过 **CC Switch / 聚合网关** 接入的 **DeepSeek、GPT、GLM、Gemini** 等第三方模型，Claude Pulse 都能精准捕获缓存命中率、自动学习模型上下文上限，并将数据实时同步至外部终端。
+无论你使用的是 Anthropic 原生 Claude 模型，还是通过 **CC Switch / 聚合网关** 接入的 **DeepSeek、GPT、GLM、Gemini** 等第三方模型，Claude Pulse 都能精准捕获缓存命中率、自动识别 **Effort 思考强度**、自动学习模型上下文上限，并将数据实时同步至外部终端。
 
-同时，**v1.1.0** 全新集成了 **Windows Terminal 东京夜亚克力磨砂（Tokyo Night Acrylic）**、**Cascadia Code 编程连字** 与 **极速双行 Shell 提示符**，让你的开发环境**既拥有极致的丝滑性能，又兼备好莱坞级的黑客颜值**。
+同时，**v1.2.0** 集成了常驻 **🧠 Effort 思考强度指示器**、**防虚标真实缓存命中率算法**（纳入 `cache_creation_input_tokens` 并杜绝 `>=99.5%` 四舍五入假满值），配合 **Windows Terminal 东京夜亚克力磨砂（Tokyo Night Acrylic）**、**Cascadia Code 编程连字** 与 **极速双行 Shell 提示符**，让你的开发环境**既拥有极致的丝滑性能，又兼备好莱坞级的黑客颜值**。
 
 ```text
  ~/Desktop/claude-pulse (main)
  ❯ claude
 
- 📦 DeepSeek 4.1 Flash │ Ctx [■■■■□□□□] 56.6% (72.5k/128k) │ 💾 Cache 96% (64.8k) │ ⚡ 1.5 TPS │ 📁 main
+ 📦 DeepSeek 4.1 Flash │ 🧠 Effort Med │ Ctx [███░░░░░] 29.2% (291.6k/1M) │ 💾 Cache 99.6% (288.1k)
 ```
 
 *(Dinotty 终端右下角状态栏同步点亮)*:
 ```text
- [⚡ Cache 96% (64.8k)]  ── 点击展示 60s 走势折线图与 Token 消耗明细
+ [⚡ Cache 99.6% (288.1k)]  ── 点击展示 60s 走势折线图与 Token 消耗明细
 ```
 
 ---

@@ -76,7 +76,99 @@ function formatModelName(raw) {
 }
 
 const MODEL_CONTEXT_CACHE_PATH = path.join(CLAUDE_DIR, 'model_context_cache.json');
+const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 const CODEX_CATALOG_PATH = path.join(process.env.USERPROFILE || process.env.HOME || '', '.codex', 'cc-switch-model-catalog.json');
+
+// Resolve thinking / reasoning effort level across Claude Code stdin JSON, env, and settings.json
+function resolveEffortLevel(data, rawModel) {
+  // 1. Direct from Claude Code v2.1.300+ statusLine JSON payload
+  const direct = data.effort?.level
+              || (typeof data.effort === 'string' ? data.effort : null)
+              || data.reasoning_effort
+              || data.effortLevel;
+  if (direct && typeof direct === 'string') {
+    return direct.toLowerCase().trim();
+  }
+
+  // 2. Explicit thinking disabled via payload or env
+  if (data.thinking?.enabled === false) return 'off';
+  if (process.env.MAX_THINKING_TOKENS === '0') return 'off';
+
+  // 3. Environment variable override
+  if (process.env.CLAUDE_CODE_EFFORT_LEVEL) {
+    return process.env.CLAUDE_CODE_EFFORT_LEVEL.toLowerCase().trim();
+  }
+
+  // 4. Local ~/.claude/settings.json fallback (covers 3rd-party / gateway models)
+  try {
+    if (fs.existsSync(SETTINGS_PATH)) {
+      const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) || {};
+      if (settings.alwaysThinkingEnabled === false) return 'off';
+      if (settings.env?.MAX_THINKING_TOKENS === '0') return 'off';
+      if (settings.env?.CLAUDE_CODE_EFFORT_LEVEL) {
+        return String(settings.env.CLAUDE_CODE_EFFORT_LEVEL).toLowerCase().trim();
+      }
+      if (typeof settings.effortLevel === 'string' && settings.effortLevel.trim()) {
+        return settings.effortLevel.toLowerCase().trim();
+      }
+      const ms = settings.modelSettings;
+      if (ms && typeof ms === 'object') {
+        const candidates = [
+          rawModel,
+          data.model?.id,
+          settings.model,
+          settings.model === 'fable' ? 'claude-opus-5-5' : null,
+          settings.model === 'fable' ? 'claude-opus-5' : null
+        ].filter(Boolean);
+        for (const key of candidates) {
+          if (ms[key]?.effortLevel) {
+            return String(ms[key].effortLevel).toLowerCase().trim();
+          }
+        }
+        for (const val of Object.values(ms)) {
+          if (val && typeof val.effortLevel === 'string' && val.effortLevel.trim()) {
+            return val.effortLevel.toLowerCase().trim();
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 5. Claude Code default effort level
+  return 'high';
+}
+
+function formatEffortBadge(effortRaw) {
+  const lvl = String(effortRaw || 'high').toLowerCase().trim();
+  const map = {
+    low:    { label: 'Low',   color: C.green },
+    medium: { label: 'Med',   color: C.blue },
+    med:    { label: 'Med',   color: C.blue },
+    high:   { label: 'High',  color: C.yellow },
+    xhigh:  { label: 'XHigh', color: C.orange },
+    max:    { label: 'Max',   color: C.magenta },
+    auto:   { label: 'Auto',  color: C.cyan },
+    off:    { label: 'Off',   color: C.gray }
+  };
+  const item = map[lvl] || {
+    label: lvl.charAt(0).toUpperCase() + lvl.slice(1),
+    color: C.yellow
+  };
+  return {
+    level: lvl,
+    label: item.label,
+    text: `${item.color}${bold}🧠 Effort ${item.label}${reset}`
+  };
+}
+
+function computeAccurateHitRate(hitTokens, totalInputTokens) {
+  if (typeof totalInputTokens !== 'number' || totalInputTokens <= 0) return null;
+  if (typeof hitTokens !== 'number' || hitTokens <= 0) return 0;
+  if (hitTokens >= totalInputTokens) return 100;
+  const raw = (hitTokens / totalInputTokens) * 100;
+  // Prevent Math.round from turning >=99.5% into a fake 100% when uncached/write tokens exist
+  return Math.min(99.9, Number(raw.toFixed(1)));
+}
 
 // Standard context window tiers across LLM hardware / architectures
 const CONTEXT_TIERS = [
@@ -268,27 +360,13 @@ function render(data) {
   const cwd = data.cwd || data.workspace?.current_dir || process.cwd();
   const rawModel = data.model?.display_name || data.model?.id || 'claude-sonnet-5-5';
   const modelName = formatModelName(rawModel);
+  const effortBadge = formatEffortBadge(resolveEffortLevel(data, rawModel));
 
   // Context window & tokens (multi-model & multi-version telemetry support)
   const ctx = data.context_window || {};
   const curUsage = ctx.current_usage || ctx.usage || data.current_usage || data.usage || {};
 
-  // Universal input / output extractor across Anthropic, OpenAI Chat, OpenAI Responses, and Gemini
-  const inputTokens = curUsage.input_tokens 
-                   || curUsage.prompt_tokens
-                   || curUsage.promptTokenCount
-                   || curUsage.uncached_input_tokens 
-                   || ctx.total_input_tokens 
-                   || data.tokens?.input 
-                   || 0;
-  const outputTokens = curUsage.output_tokens 
-                    || curUsage.completion_tokens
-                    || curUsage.candidatesTokenCount
-                    || ctx.total_output_tokens 
-                    || data.tokens?.output 
-                    || 0;
-
-  // Universal multi-protocol cache extractor:
+  // Universal multi-protocol cache read extractor:
   // 1. Anthropic Native: cache_read_input_tokens / cache_read_tokens
   // 2. OpenAI Chat: prompt_tokens_details.cached_tokens / cached_tokens
   // 3. OpenAI Responses API: input_tokens_details.cached_tokens
@@ -306,6 +384,39 @@ function render(data) {
                     || data.tokens?.cache_read
                     || 0;
 
+  // Cache creation (write) tokens — in Anthropic protocol these are uncached misses billed at write rate
+  const cacheCreationTokens = curUsage.cache_creation_input_tokens
+                           || curUsage.cache_creation_tokens
+                           || curUsage.cacheCreationInputTokens
+                           || ctx.cache_creation_input_tokens
+                           || data.tokens?.cache_creation
+                           || 0;
+
+  // Universal uncached input / output extractor across Anthropic, OpenAI, and Gemini
+  let inputTokens = 0;
+  if (typeof curUsage.input_tokens === 'number') {
+    inputTokens = curUsage.input_tokens;
+  } else if (typeof curUsage.uncached_input_tokens === 'number') {
+    inputTokens = curUsage.uncached_input_tokens;
+  } else if (typeof curUsage.prompt_tokens === 'number') {
+    // OpenAI prompt_tokens includes cached_tokens
+    inputTokens = curUsage.prompt_tokens >= cachedTokens ? (curUsage.prompt_tokens - cachedTokens) : curUsage.prompt_tokens;
+  } else if (typeof curUsage.promptTokenCount === 'number') {
+    inputTokens = curUsage.promptTokenCount >= cachedTokens ? (curUsage.promptTokenCount - cachedTokens) : curUsage.promptTokenCount;
+  } else if (typeof data.tokens?.input === 'number') {
+    inputTokens = data.tokens.input;
+  } else if (typeof ctx.total_input_tokens === 'number') {
+    // Claude Code total_input_tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+    inputTokens = Math.max(0, ctx.total_input_tokens - cachedTokens - cacheCreationTokens);
+  }
+
+  const outputTokens = curUsage.output_tokens 
+                    || curUsage.completion_tokens
+                    || curUsage.candidatesTokenCount
+                    || ctx.total_output_tokens 
+                    || data.tokens?.output 
+                    || 0;
+
   // Check cumulative session cache metrics if turn-level is unpopulated
   let sessionCached = 0;
   let sessionInput = 0;
@@ -319,14 +430,19 @@ function render(data) {
                     || m.prompt_tokens_details?.cached_tokens
                     || m.input_tokens_details?.cached_tokens
                     || 0;
+      const writeToks = m.cacheCreationInputTokens
+                     || m.cache_creation_input_tokens
+                     || m.cache_creation_tokens
+                     || 0;
       const inToks = m.inputTokens || m.input_tokens || m.prompt_tokens || m.promptTokenCount || 0;
       sessionCached += readToks;
-      sessionInput += (inToks + readToks);
+      sessionInput += (inToks + writeToks + readToks);
     }
   }
 
-  // Real conversation tokens in context
-  let usedTokens = inputTokens + outputTokens + cachedTokens;
+  // Real conversation tokens in context (uncached + cache_creation + cache_read + output)
+  const turnTotal = inputTokens + cacheCreationTokens + cachedTokens;
+  let usedTokens = turnTotal + outputTokens;
   const maxCtx = resolveModelContext(rawModel, ctx.context_window_size, usedTokens);
   let ctxPct = 0;
 
@@ -357,17 +473,21 @@ function render(data) {
   }
   const displayTps = currentTps || lastTps || '—';
 
-  // Compute accurate Cache Hit Rate (prefer turn-level, fallback to session cumulative)
-  const turnTotal = inputTokens + cachedTokens;
+  // Compute accurate Cache Hit Rate:
+  // Formula: cache_read / (uncached_input + cache_creation + cache_read)
+  // Never rounds <100% up to 100% when uncached or cache_creation tokens exist.
   let cacheHitRate = null;
   let displayCacheTokens = 0;
 
   if (turnTotal > 0) {
-    cacheHitRate = Math.round((cachedTokens / turnTotal) * 100);
+    cacheHitRate = computeAccurateHitRate(cachedTokens, turnTotal);
     displayCacheTokens = cachedTokens;
   } else if (sessionInput > 0) {
-    cacheHitRate = Math.round((sessionCached / sessionInput) * 100);
+    cacheHitRate = computeAccurateHitRate(sessionCached, sessionInput);
     displayCacheTokens = sessionCached;
+  } else if (typeof data.prompt_cache?.hit_ratio === 'number') {
+    const ratio = data.prompt_cache.hit_ratio;
+    cacheHitRate = ratio >= 1 ? 100 : Math.min(99.9, Number((ratio * 100).toFixed(1)));
   }
 
   // Export real-time cache stats for Dinotty status bar & plugins
@@ -376,9 +496,12 @@ function render(data) {
       cacheHitRate: cacheHitRate ?? 0,
       displayCacheTokens,
       cachedTokens,
+      cacheCreationTokens,
       inputTokens,
       outputTokens,
       model: modelName,
+      effort: effortBadge.label,
+      effortLevel: effortBadge.level,
       usedTokens,
       maxCtx,
       ctxPct: Number(ctxPct.toFixed(1)),
@@ -406,7 +529,13 @@ function render(data) {
     text: `${C.cyan}${bold}📦 ${modelName}${reset}`
   });
 
-  // 2. Context Window Progress Bar & Capacity
+  // 2. Permanent Effort / Thinking Strength Badge (🧠 Effort)
+  segments.push({
+    priority: 1,
+    text: effortBadge.text
+  });
+
+  // 3. Context Window Progress Bar & Capacity
   const bar = renderProgressBar(ctxPct, 8);
   let pctColor = C.green;
   if (ctxPct >= 80) pctColor = C.red;
@@ -418,7 +547,7 @@ function render(data) {
     text: `${C.gray}Ctx ${bar} ${pctColor}${bold}${ctxPct.toFixed(1)}%${reset} ${C.gray}(${ctxFormatted})${reset}`
   });
 
-  // 3. Cache Hit Rate Badge (Multi-model: Claude / DeepSeek / GPT / Gemini)
+  // 4. Cache Hit Rate Badge (Multi-model: Claude / DeepSeek / GPT / Gemini)
   if (cacheHitRate !== null) {
     let cacheColor = C.darkGray;
     if (cacheHitRate >= 80) cacheColor = C.green;
@@ -431,7 +560,7 @@ function render(data) {
     });
   }
 
-  // 4. 5-Hour Quota / Reset Countdown (if available)
+  // 5. 5-Hour Quota / Reset Countdown (if available)
   if (typeof fiveHourPct === 'number' || fiveHourReset) {
     const quotaStr = typeof fiveHourPct === 'number' ? `${Math.round(fiveHourPct)}%` : '';
     const resetStr = fiveHourReset ? ` (${formatCountdown(fiveHourReset)})` : '';

@@ -2,12 +2,14 @@ export function activate(ctx) {
   const state = ctx.reactive({
     cacheHitRate: null,
     cachedTokens: 0,
+    cacheCreationTokens: 0,
     inputTokens: 0,
     outputTokens: 0,
     usedTokens: 0,
     maxCtx: 128000,
     ctxPct: 0,
     model: '',
+    effort: 'High',
     tps: '—',
     lastUpdate: 0,
     hasData: false,
@@ -47,12 +49,14 @@ export function activate(ctx) {
             state.cacheHitRate = data.cacheHitRate;
           }
           state.cachedTokens = data.displayCacheTokens || data.cachedTokens || 0;
+          state.cacheCreationTokens = data.cacheCreationTokens || 0;
           state.inputTokens = data.inputTokens || 0;
           state.outputTokens = data.outputTokens || 0;
-          state.usedTokens = data.usedTokens || (state.inputTokens + state.outputTokens + state.cachedTokens);
+          state.usedTokens = data.usedTokens || (state.inputTokens + state.cacheCreationTokens + state.outputTokens + state.cachedTokens);
           state.maxCtx = data.maxCtx || 128000;
           state.ctxPct = data.ctxPct != null ? data.ctxPct : Math.round((state.usedTokens / state.maxCtx) * 100);
           state.model = data.model || '';
+          state.effort = data.effort || 'High';
           state.tps = data.tps || '—';
           state.lastUpdate = data.time || Date.now();
           state.hasData = true;
@@ -105,8 +109,12 @@ export function activate(ctx) {
                 value: ctxStr,
               },
               {
-                label: '输入消耗',
-                value: `${formatTokens(state.inputTokens)} tokens`,
+                label: '思考强度',
+                value: state.effort || 'High',
+              },
+              {
+                label: '未命中输入',
+                value: `${formatTokens(state.inputTokens + state.cacheCreationTokens)} tokens`,
               },
               {
                 label: '输出消耗',
