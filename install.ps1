@@ -48,32 +48,31 @@ if (Test-Path $ScriptSource) {
     exit 1
 }
 
-# 2. Update settings.json
+# 2. Update settings.json safely via Node.js (100% compatible with PowerShell 5.1 & 7+)
 $SettingsPath = Join-Path $ClaudeDir "settings.json"
 $NormalizedPath = $ScriptDest.Replace('\', '/')
+$CommandStr = if ($NormalizedPath.Contains(' ')) { "node `"$NormalizedPath`"" } else { "node $NormalizedPath" }
 
-$settingsObj = [ordered]@{}
-if (Test-Path $SettingsPath) {
-    try {
-        $raw = Get-Content -Path $SettingsPath -Raw -Encoding UTF8
-        $parsed = ConvertFrom-Json $raw -AsHashtable
-        if ($parsed) {
-            $settingsObj = [ordered]$parsed
-        }
-    } catch {
-        Write-Color "  ! Existing settings.json had parse warnings, creating clean backup..." Yellow
-        Copy-Item -Path $SettingsPath -Destination "$SettingsPath.bak-pulse" -Force
-    }
+$env:PULSE_SETTINGS_PATH = $SettingsPath
+$env:PULSE_CMD_STR = $CommandStr
+node -e "
+const fs = require('fs');
+const file = process.env.PULSE_SETTINGS_PATH;
+let data = {};
+if (fs.existsSync(file)) {
+  try {
+    data = JSON.parse(fs.readFileSync(file, 'utf8')) || {};
+  } catch (e) {
+    fs.copyFileSync(file, file + '.bak-pulse');
+  }
 }
-
-$settingsObj['statusLine'] = [ordered]@{
-    type = "command"
-    command = "node $NormalizedPath"
-    padding = 0
-}
-
-$jsonOutput = ConvertTo-Json $settingsObj -Depth 32
-[System.IO.File]::WriteAllText($SettingsPath, $jsonOutput, [System.Text.UTF8Encoding]::new($false))
+data.statusLine = {
+  type: 'command',
+  command: process.env.PULSE_CMD_STR,
+  padding: 0
+};
+fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
+"
 Write-Color "  ✓ Claude Code settings updated: $SettingsPath" Green
 
 # 3. Install Dinotty Plugin (if Dinotty is present)

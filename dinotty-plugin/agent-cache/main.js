@@ -84,7 +84,7 @@ export function activate(ctx) {
           statusIcon: 'Zap',
           defaultVisible: true,
           current: () => {
-            return state.cacheHitRate;
+            return state.cacheHitRate ?? 0;
           },
           statusText: () => {
             if (!state.hasData || state.cacheHitRate === null) {

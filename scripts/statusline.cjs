@@ -45,14 +45,38 @@ function formatTokens(n) {
 
 function formatCountdown(targetTs) {
   if (!targetTs) return '';
+  let sec = Number(targetTs);
+  if (!Number.isFinite(sec)) {
+    const parsed = Date.parse(String(targetTs));
+    if (!Number.isFinite(parsed)) return '';
+    sec = Math.floor(parsed / 1000);
+  } else if (sec > 1e11) {
+    sec = Math.floor(sec / 1000);
+  }
   const now = Math.floor(Date.now() / 1000);
-  const diff = targetTs - now;
+  const diff = sec - now;
   if (diff <= 0) return '0m';
   const min = Math.floor(diff / 60);
   if (min < 60) return `${min}m`;
   const hr = Math.floor(min / 60);
   const remMin = min % 60;
   return `${hr}h${remMin > 0 ? remMin + 'm' : ''}`;
+}
+
+function writeJsonAtomic(filePath, obj) {
+  const content = JSON.stringify(obj, null, 2);
+  const tmpPath = `${filePath}.tmp.${process.pid}`;
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    fs.renameSync(tmpPath, filePath);
+  } catch {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch {}
+    try {
+      fs.writeFileSync(filePath, content, 'utf8');
+    } catch {}
+  }
 }
 
 function formatModelName(raw) {
@@ -79,6 +103,26 @@ const MODEL_CONTEXT_CACHE_PATH = path.join(CLAUDE_DIR, 'model_context_cache.json
 const SETTINGS_PATH = path.join(CLAUDE_DIR, 'settings.json');
 const CODEX_CATALOG_PATH = path.join(process.env.USERPROFILE || process.env.HOME || '', '.codex', 'cc-switch-model-catalog.json');
 
+let cachedSettings = null;
+function getClaudeSettings() {
+  if (cachedSettings !== null) return cachedSettings;
+  try {
+    if (fs.existsSync(SETTINGS_PATH)) {
+      cachedSettings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) || {};
+      return cachedSettings;
+    }
+  } catch {}
+  cachedSettings = {};
+  return cachedSettings;
+}
+
+function toCanonicalClaudeId(name) {
+  if (!name || typeof name !== 'string') return '';
+  const s = name.toLowerCase().trim().replace(/\./g, '-').replace(/\s+/g, '-');
+  if (/^(opus|sonnet|haiku)-/.test(s)) return `claude-${s}`;
+  return s;
+}
+
 // Resolve thinking / reasoning effort level across Claude Code stdin JSON, env, and settings.json
 function resolveEffortLevel(data, rawModel) {
   // 1. Direct from Claude Code v2.1.300+ statusLine JSON payload
@@ -100,39 +144,42 @@ function resolveEffortLevel(data, rawModel) {
   }
 
   // 4. Local ~/.claude/settings.json fallback (covers 3rd-party / gateway models)
-  try {
-    if (fs.existsSync(SETTINGS_PATH)) {
-      const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8')) || {};
-      if (settings.alwaysThinkingEnabled === false) return 'off';
-      if (settings.env?.MAX_THINKING_TOKENS === '0') return 'off';
-      if (settings.env?.CLAUDE_CODE_EFFORT_LEVEL) {
-        return String(settings.env.CLAUDE_CODE_EFFORT_LEVEL).toLowerCase().trim();
-      }
-      if (typeof settings.effortLevel === 'string' && settings.effortLevel.trim()) {
-        return settings.effortLevel.toLowerCase().trim();
-      }
-      const ms = settings.modelSettings;
-      if (ms && typeof ms === 'object') {
-        const candidates = [
-          rawModel,
-          data.model?.id,
-          settings.model,
-          settings.model === 'fable' ? 'claude-opus-5-5' : null,
-          settings.model === 'fable' ? 'claude-opus-5' : null
-        ].filter(Boolean);
-        for (const key of candidates) {
-          if (ms[key]?.effortLevel) {
-            return String(ms[key].effortLevel).toLowerCase().trim();
-          }
+  const settings = getClaudeSettings();
+  if (settings.alwaysThinkingEnabled === false) return 'off';
+  if (settings.env?.MAX_THINKING_TOKENS === '0') return 'off';
+  if (settings.env?.CLAUDE_CODE_EFFORT_LEVEL) {
+    return String(settings.env.CLAUDE_CODE_EFFORT_LEVEL).toLowerCase().trim();
+  }
+  if (typeof settings.effortLevel === 'string' && settings.effortLevel.trim()) {
+    return settings.effortLevel.toLowerCase().trim();
+  }
+
+  const ms = settings.modelSettings;
+  if (ms && typeof ms === 'object') {
+    const candidates = [
+      data.model?.id,
+      toCanonicalClaudeId(data.model?.id),
+      rawModel,
+      toCanonicalClaudeId(rawModel),
+      settings.model,
+      toCanonicalClaudeId(settings.model),
+      settings.model === 'fable' ? 'claude-opus-5-5' : null,
+      settings.model === 'fable' ? 'claude-opus-5' : null
+    ].filter(Boolean);
+
+    for (const key of candidates) {
+      if (Object.prototype.hasOwnProperty.call(ms, key)) {
+        const lvl = ms[key]?.effortLevel;
+        if (typeof lvl === 'string' && lvl.trim()) {
+          return lvl.toLowerCase().trim();
         }
-        for (const val of Object.values(ms)) {
-          if (val && typeof val.effortLevel === 'string' && val.effortLevel.trim()) {
-            return val.effortLevel.toLowerCase().trim();
-          }
+        // Key explicitly exists in modelSettings with empty object {} -> use Claude Code default ('high')
+        if (key === toCanonicalClaudeId(data.model?.id) || key === toCanonicalClaudeId(rawModel)) {
+          return 'high';
         }
       }
     }
-  } catch {}
+  }
 
   // 5. Claude Code default effort level
   return 'high';
@@ -141,14 +188,14 @@ function resolveEffortLevel(data, rawModel) {
 function formatEffortBadge(effortRaw) {
   const lvl = String(effortRaw || 'high').toLowerCase().trim();
   const map = {
-    low:    { label: 'Low',   color: C.green },
-    medium: { label: 'Med',   color: C.blue },
-    med:    { label: 'Med',   color: C.blue },
-    high:   { label: 'High',  color: C.yellow },
-    xhigh:  { label: 'XHigh', color: C.orange },
-    max:    { label: 'Max',   color: C.magenta },
-    auto:   { label: 'Auto',  color: C.cyan },
-    off:    { label: 'Off',   color: C.gray }
+    low:    { label: 'Low',    color: C.green },
+    medium: { label: 'Medium', color: C.blue },
+    med:    { label: 'Medium', color: C.blue },
+    high:   { label: 'High',   color: C.yellow },
+    xhigh:  { label: 'XHigh',  color: C.orange },
+    max:    { label: 'Max',    color: C.magenta },
+    auto:   { label: 'Auto',   color: C.cyan },
+    off:    { label: 'Off',    color: C.gray }
   };
   const item = map[lvl] || {
     label: lvl.charAt(0).toUpperCase() + lvl.slice(1),
@@ -157,7 +204,7 @@ function formatEffortBadge(effortRaw) {
   return {
     level: lvl,
     label: item.label,
-    text: `${item.color}${bold}🧠 Effort ${item.label}${reset}`
+    text: `${item.color}${bold}${item.label}${reset}`
   };
 }
 
@@ -196,21 +243,23 @@ function saveLearnedModel(modelKey, size) {
   if (!modelKey || !size || size <= 0) return;
   if (learnedCache[modelKey] === size) return;
   learnedCache[modelKey] = size;
-  try {
-    fs.writeFileSync(MODEL_CONTEXT_CACHE_PATH, JSON.stringify(learnedCache, null, 2), 'utf8');
-  } catch {}
+  writeJsonAtomic(MODEL_CONTEXT_CACHE_PATH, learnedCache);
 }
 
 // Auto-discover local CC Switch / Codex model catalogs
 function queryLocalCatalog(modelKey) {
+  if (!modelKey) return 0;
   try {
     if (fs.existsSync(CODEX_CATALOG_PATH)) {
       const cat = JSON.parse(fs.readFileSync(CODEX_CATALOG_PATH, 'utf8'));
       if (Array.isArray(cat?.models)) {
         for (const m of cat.models) {
-          const s = (m.slug || '').toLowerCase();
-          const d = (m.display_name || '').toLowerCase();
-          if (s === modelKey || d === modelKey || modelKey.includes(s) || s.includes(modelKey)) {
+          const s = (m.slug || '').toLowerCase().trim();
+          const d = (m.display_name || '').toLowerCase().trim();
+          const exactMatch = (s && s === modelKey) || (d && d === modelKey);
+          const fuzzyMatch = (s.length >= 4 && (modelKey.includes(s) || s.includes(modelKey)))
+                          || (d.length >= 4 && (modelKey.includes(d) || d.includes(modelKey)));
+          if (exactMatch || fuzzyMatch) {
             const sz = m.max_context_window || m.context_window;
             if (typeof sz === 'number' && sz > 0) return sz;
           }
@@ -222,34 +271,39 @@ function queryLocalCatalog(modelKey) {
 }
 
 // Universal Self-Learning Context Engine (Works for current & ANY future new models)
-function resolveModelContext(rawModel, providedSize, usedTokens) {
-  const m = (rawModel || '').toLowerCase().trim();
+function resolveModelContext(rawModel, modelId, providedSize, usedTokens) {
+  const m = (modelId || rawModel || '').toLowerCase().trim();
+  const displayKey = (rawModel || '').toLowerCase().trim();
+  const settings = getClaudeSettings();
+  const envMaxCtx = parseInt(process.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS || settings.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS || '0', 10);
+  const effectiveProvided = (providedSize && providedSize > 0) ? providedSize : (envMaxCtx > 0 ? envMaxCtx : 0);
 
-  // 1. Explicit 1M / 2M Declaration (e.g. CC Switch "声明支持 1M" checkbox)
-  if (providedSize && providedSize >= 1000000) {
-    saveLearnedModel(m, providedSize);
-    return providedSize;
+  // 1. Explicit 1M / 2M Declaration (e.g. CC Switch "声明支持 1M" checkbox or CLAUDE_CODE_MAX_CONTEXT_TOKENS)
+  if (effectiveProvided >= 1000000) {
+    const finalSize = usedTokens > effectiveProvided ? scaleToNextTier(usedTokens) : effectiveProvided;
+    saveLearnedModel(m, finalSize);
+    return finalSize;
   }
 
   // 2. Check Persistent Learned Cache first
-  if (learnedCache[m] && typeof learnedCache[m] === 'number') {
-    let cached = learnedCache[m];
+  const cachedVal = learnedCache[m] || learnedCache[displayKey];
+  if (typeof cachedVal === 'number' && cachedVal > 0) {
+    let cached = Math.max(cachedVal, effectiveProvided || 0);
     if (usedTokens > cached) {
       cached = scaleToNextTier(usedTokens);
-      saveLearnedModel(m, cached);
     }
+    saveLearnedModel(m, cached);
     return cached;
   }
 
   // 3. Universal Name Suffix / Token Extraction (e.g. -128k, -200k, -256k, -512k, -1m, -2m, _1m, 1m)
-  // Automatically handles any future model named with its context size without needing code changes!
   const nameMatch = m.match(/(?:^|[-_./])(\d+)(k|m)(?:$|[-_./])/i);
   if (nameMatch) {
     const num = parseInt(nameMatch[1], 10);
     const unit = nameMatch[2].toLowerCase();
     const extracted = unit === 'm' ? num * 1000000 : num * 1000;
     if (extracted >= 16000 && extracted <= 10000000) {
-      let finalSize = extracted;
+      let finalSize = Math.max(extracted, effectiveProvided || 0);
       if (usedTokens > finalSize) {
         finalSize = scaleToNextTier(usedTokens);
       }
@@ -259,9 +313,9 @@ function resolveModelContext(rawModel, providedSize, usedTokens) {
   }
 
   // 4. Query Local CC Switch / Codex Catalogs
-  const catalogSize = queryLocalCatalog(m);
+  const catalogSize = queryLocalCatalog(m) || queryLocalCatalog(displayKey);
   if (catalogSize > 0) {
-    let finalSize = catalogSize;
+    let finalSize = Math.max(catalogSize, effectiveProvided || 0);
     if (usedTokens > finalSize) {
       finalSize = scaleToNextTier(usedTokens);
     }
@@ -270,17 +324,22 @@ function resolveModelContext(rawModel, providedSize, usedTokens) {
   }
 
   // 5. Intelligent Model Family Baseline
+  const combinedName = `${m} ${displayKey}`;
   let baseline = 0;
-  if (/gemini-(?:1\.5|2\.0)-pro/i.test(m)) {
+  if (/gemini-(?:1\.5|2\.0)-pro/i.test(combinedName)) {
     baseline = 2000000;
-  } else if (/gemini|grok|sol|astra|glm-5\.3|qwen.*long|claude.*(?:5|5\.5)/i.test(m)) {
+  } else if (/gemini|grok|sol|astra|glm-5\.3|qwen.*long|(?:claude|opus|sonnet|fable).*(?:4-7|4\.7|4-8|4\.8|5|5\.5)/i.test(combinedName)) {
     baseline = 1000000;
-  } else if (/claude|o1|o3|o4|kimi|moonshot/i.test(m)) {
+  } else if (/claude|opus|sonnet|haiku|o1|o3|o4|kimi|moonshot/i.test(combinedName)) {
     baseline = 200000;
-  } else if (/deepseek|gpt-4|qwen|glm|mistral|codestral|yi/i.test(m)) {
+  } else if (/deepseek|gpt-4|qwen|glm|mistral|codestral|yi/i.test(combinedName)) {
     baseline = 128000;
   } else {
-    baseline = providedSize && providedSize > 0 ? providedSize : 128000;
+    baseline = effectiveProvided > 0 ? effectiveProvided : 128000;
+  }
+
+  if (effectiveProvided > baseline) {
+    baseline = effectiveProvided;
   }
 
   // 6. Dynamic Real-Time Auto-Scaling (If conversation grows past baseline, adapt ceiling automatically)
@@ -304,42 +363,6 @@ function renderProgressBar(percentage, width = 8) {
   return `${color}${'█'.repeat(filled)}${C.darkGray}${'░'.repeat(empty)}${reset}`;
 }
 
-// Git branch finder (upward traversal, supports worktrees & submodules, zero subprocess latency)
-function getGitBranch(startDir) {
-  if (!startDir) return null;
-  let cur = path.resolve(startDir);
-  const root = path.parse(cur).root;
-
-  while (cur && cur !== root) {
-    const gitPath = path.join(cur, '.git');
-    try {
-      if (fs.existsSync(gitPath)) {
-        const stat = fs.statSync(gitPath);
-        let headPath = '';
-        if (stat.isDirectory()) {
-          headPath = path.join(gitPath, 'HEAD');
-        } else {
-          const content = fs.readFileSync(gitPath, 'utf8').trim();
-          if (content.startsWith('gitdir:')) {
-            headPath = path.resolve(cur, content.slice(7).trim(), 'HEAD');
-          }
-        }
-        if (headPath && fs.existsSync(headPath)) {
-          const head = fs.readFileSync(headPath, 'utf8').trim();
-          if (head.startsWith('ref: refs/heads/')) {
-            return head.replace('ref: refs/heads/', '');
-          }
-          return head.slice(0, 7);
-        }
-      }
-    } catch {}
-    const parent = path.dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  return null;
-}
-
 // Buffer standard input
 let rawInput = '';
 process.stdin.setEncoding('utf8');
@@ -357,8 +380,8 @@ process.stdin.on('end', () => {
 });
 
 function render(data) {
-  const cwd = data.cwd || data.workspace?.current_dir || process.cwd();
   const rawModel = data.model?.display_name || data.model?.id || 'claude-sonnet-5-5';
+  const modelId = data.model?.id || rawModel;
   const modelName = formatModelName(rawModel);
   const effortBadge = formatEffortBadge(resolveEffortLevel(data, rawModel));
 
@@ -443,35 +466,56 @@ function render(data) {
   // Real conversation tokens in context (uncached + cache_creation + cache_read + output)
   const turnTotal = inputTokens + cacheCreationTokens + cachedTokens;
   let usedTokens = turnTotal + outputTokens;
-  const maxCtx = resolveModelContext(rawModel, ctx.context_window_size, usedTokens);
+  const maxCtx = resolveModelContext(rawModel, modelId, ctx.context_window_size, usedTokens);
   let ctxPct = 0;
 
-  if (typeof ctx.used_percentage === 'number' && ctx.used_percentage > 0) {
+  // Always compute ctxPct from (usedTokens / maxCtx) when usedTokens > 0 so percentage and (used/max) never contradict
+  if (maxCtx > 0 && usedTokens > 0) {
+    ctxPct = (usedTokens / maxCtx) * 100;
+  } else if (typeof ctx.used_percentage === 'number' && ctx.used_percentage > 0) {
     ctxPct = ctx.used_percentage;
-    if (usedTokens === 0) {
+    if (usedTokens === 0 && maxCtx > 0) {
       usedTokens = Math.round((ctxPct / 100) * maxCtx);
     }
-  } else if (maxCtx > 0 && usedTokens > 0) {
-    ctxPct = (usedTokens / maxCtx) * 100;
   }
 
-  // Speed (TPS: Tokens per second)
-  let lastTps = null;
+  // Accurate per-turn API Speed (TPS: Tokens per second)
+  // Uses delta of cost.total_api_duration_ms instead of session wall-clock total_duration_ms
+  let prevTpsRecord = null;
   try {
     if (fs.existsSync(TPS_CACHE_PATH)) {
-      lastTps = JSON.parse(fs.readFileSync(TPS_CACHE_PATH, 'utf8')).tps;
+      prevTpsRecord = JSON.parse(fs.readFileSync(TPS_CACHE_PATH, 'utf8'));
     }
   } catch {}
 
-  const durationMs = data.cost?.total_duration_ms || 0;
+  const totalApiMs = data.cost?.total_api_duration_ms || data.session?.total_api_duration_ms || 0;
+  const sessionId = data.session_id || data.remote?.session_id || '';
   let currentTps = null;
-  if (durationMs >= 400 && outputTokens > 0) {
-    currentTps = ((outputTokens / durationMs) * 1000).toFixed(1);
-    try {
-      fs.writeFileSync(TPS_CACHE_PATH, JSON.stringify({ tps: currentTps, time: Date.now() }), 'utf8');
-    } catch {}
+
+  if (totalApiMs > 0 && outputTokens > 0) {
+    let deltaApiMs = totalApiMs;
+    if (
+      prevTpsRecord &&
+      typeof prevTpsRecord.totalApiMs === 'number' &&
+      (!sessionId || !prevTpsRecord.sessionId || prevTpsRecord.sessionId === sessionId) &&
+      totalApiMs >= prevTpsRecord.totalApiMs
+    ) {
+      deltaApiMs = totalApiMs - prevTpsRecord.totalApiMs;
+    }
+    if (deltaApiMs >= 200) {
+      currentTps = ((outputTokens / deltaApiMs) * 1000).toFixed(1);
+      writeJsonAtomic(TPS_CACHE_PATH, {
+        tps: currentTps,
+        totalApiMs,
+        sessionId,
+        time: Date.now()
+      });
+    }
   }
-  const displayTps = currentTps || lastTps || '—';
+
+  // Ignore legacy corrupted TPS records that lacked totalApiMs (which divided by multi-hour wall clock)
+  const validCachedTps = (prevTpsRecord && typeof prevTpsRecord.totalApiMs === 'number') ? prevTpsRecord.tps : null;
+  const displayTps = currentTps || validCachedTps || '—';
 
   // Compute accurate Cache Hit Rate:
   // Formula: cache_read / (uncached_input + cache_creation + cache_read)
@@ -490,34 +534,29 @@ function render(data) {
     cacheHitRate = ratio >= 1 ? 100 : Math.min(99.9, Number((ratio * 100).toFixed(1)));
   }
 
-  // Export real-time cache stats for Dinotty status bar & plugins
-  try {
-    const statsPayload = {
-      cacheHitRate: cacheHitRate ?? 0,
-      displayCacheTokens,
-      cachedTokens,
-      cacheCreationTokens,
-      inputTokens,
-      outputTokens,
-      model: modelName,
-      effort: effortBadge.label,
-      effortLevel: effortBadge.level,
-      usedTokens,
-      maxCtx,
-      ctxPct: Number(ctxPct.toFixed(1)),
-      tps: displayTps,
-      time: Date.now()
-    };
-    fs.writeFileSync(path.join(CLAUDE_DIR, 'cache_stats.json'), JSON.stringify(statsPayload, null, 2), 'utf8');
-  } catch {}
+  // Export real-time cache stats atomically for Dinotty status bar & plugins
+  const statsPayload = {
+    cacheHitRate: cacheHitRate ?? 0,
+    displayCacheTokens,
+    cachedTokens,
+    cacheCreationTokens,
+    inputTokens,
+    outputTokens,
+    model: modelName,
+    effort: effortBadge.label,
+    effortLevel: effortBadge.level,
+    usedTokens,
+    maxCtx,
+    ctxPct: Number(ctxPct.toFixed(1)),
+    tps: displayTps,
+    time: Date.now()
+  };
+  writeJsonAtomic(path.join(CLAUDE_DIR, 'cache_stats.json'), statsPayload);
 
-  // Rate Limits / Quotas (5-hour and 7-day, if present)
+  // Rate Limits / Quotas (5-hour, if present)
   const fiveHour = data.rate_limits?.five_hour;
   const fiveHourPct = fiveHour?.used_percentage;
   const fiveHourReset = fiveHour?.resets_at;
-
-  // Git Branch
-  const branch = getGitBranch(cwd);
 
   // Divider
   const divider = `${C.darkGray} │ ${reset}`;
@@ -529,7 +568,7 @@ function render(data) {
     text: `${C.cyan}${bold}📦 ${modelName}${reset}`
   });
 
-  // 2. Permanent Effort / Thinking Strength Badge (🧠 Effort)
+  // 2. Permanent Effort / Thinking Strength Level (Level name only)
   segments.push({
     priority: 1,
     text: effortBadge.text
@@ -563,15 +602,16 @@ function render(data) {
   // 5. 5-Hour Quota / Reset Countdown (if available)
   if (typeof fiveHourPct === 'number' || fiveHourReset) {
     const quotaStr = typeof fiveHourPct === 'number' ? `${Math.round(fiveHourPct)}%` : '';
-    const resetStr = fiveHourReset ? ` (${formatCountdown(fiveHourReset)})` : '';
+    const cd = formatCountdown(fiveHourReset);
+    const resetStr = cd ? ` (${cd})` : '';
     segments.push({
       priority: 3,
       text: `${C.magenta}⏳ 5h: ${quotaStr}${resetStr}${reset}`
     });
   }
 
-  // Responsive width handling
-  const termWidth = process.stdout.columns || 120;
+  // Responsive width handling (supports piped stdout via COLUMNS env)
+  const termWidth = parseInt(process.env.COLUMNS || '0', 10) || process.stdout.columns || 120;
   const stripAnsi = s => s.replace(/\x1b\[[0-9;]*m/g, '');
 
   let out = segments.map(s => s.text).join(divider);

@@ -30,101 +30,49 @@ foreach ($p in $wtPaths) {
 if ($targetWtPath) {
     try {
         Copy-Item -Path $targetWtPath -Destination "$targetWtPath.bak-pulse" -Force
-        $raw = Get-Content -Path $targetWtPath -Raw -Encoding UTF8
-        $cfg = ConvertFrom-Json $raw -AsHashtable
-
-        if (-not $cfg) { $cfg = @{} }
-        $cfg['copyOnSelect'] = $true
-
-        if (-not $cfg.ContainsKey('profiles')) { $cfg['profiles'] = @{} }
-        if (-not $cfg['profiles'].ContainsKey('defaults')) { $cfg['profiles']['defaults'] = @{} }
-
-        $defaults = $cfg['profiles']['defaults']
-        $defaults['colorScheme'] = 'Tokyo Night'
-        $defaults['useAcrylic'] = $true
-        $defaults['opacity'] = 88
-        $defaults['padding'] = '12, 12, 12, 12'
-        $defaults['cursorShape'] = 'bar'
-        $defaults['font'] = @{
-            face = 'Cascadia Code'
-            size = 11.5
-        }
-
-        # Schemes
-        if (-not $cfg.ContainsKey('schemes') -or -not ($cfg['schemes'] -is [System.Collections.IList])) {
-            $cfg['schemes'] = @()
-        }
-
-        $schemesList = [System.Collections.ArrayList]@($cfg['schemes'])
-
-        $tokyoNight = @{
-            name = 'Tokyo Night'
-            background = '#1a1b26'
-            foreground = '#c0caf5'
-            selectionBackground = '#283457'
-            cursorColor = '#bb9af7'
-            black = '#15161e'
-            red = '#f7768e'
-            green = '#9ece6a'
-            yellow = '#e0af68'
-            blue = '#7aa2f7'
-            purple = '#bb9af7'
-            cyan = '#7dcfff'
-            white = '#a9b1d6'
-            brightBlack = '#414868'
-            brightRed = '#f7768e'
-            brightGreen = '#9ece6a'
-            brightYellow = '#e0af68'
-            brightBlue = '#7aa2f7'
-            brightPurple = '#bb9af7'
-            brightCyan = '#7dcfff'
-            brightWhite = '#c0caf5'
-        }
-
-        $catppuccin = @{
-            name = 'Catppuccin Mocha'
-            background = '#1e1e2e'
-            foreground = '#cdd6f4'
-            selectionBackground = '#585b70'
-            cursorColor = '#f5e0dc'
-            black = '#45475a'
-            red = '#f38ba8'
-            green = '#a6e3a1'
-            yellow = '#f9e2af'
-            blue = '#89b4fa'
-            purple = '#cba6f7'
-            cyan = '#94e2d5'
-            white = '#bac2de'
-            brightBlack = '#585b70'
-            brightRed = '#f38ba8'
-            brightGreen = '#a6e3a1'
-            brightYellow = '#f9e2af'
-            brightBlue = '#89b4fa'
-            brightPurple = '#cba6f7'
-            brightCyan = '#94e2d5'
-            brightWhite = '#a6adc8'
-        }
-
-        # Replace or append
-        foreach ($s in @($tokyoNight, $catppuccin)) {
-            $foundIdx = -1
-            for ($i = 0; $i -lt $schemesList.Count; $i++) {
-                if ($schemesList[$i]['name'] -eq $s['name']) {
-                    $foundIdx = $i
-                    break
-                }
-            }
-            if ($foundIdx -ge 0) {
-                $schemesList[$foundIdx] = $s
-            } else {
-                $schemesList.Add($s) | Out-Null
-            }
-        }
-
-        $cfg['schemes'] = $schemesList
-
-        $outJson = ConvertTo-Json $cfg -Depth 32
-        [System.IO.File]::WriteAllText($targetWtPath, $outJson, [System.Text.UTF8Encoding]::new($false))
+        $env:PULSE_WT_PATH = $targetWtPath
+        node -e "
+const fs = require('fs');
+const p = process.env.PULSE_WT_PATH;
+const raw = fs.readFileSync(p, 'utf8').replace(/^\uFEFF/, '');
+const cfg = JSON.parse(raw) || {};
+cfg.copyOnSelect = true;
+cfg.profiles = cfg.profiles || {};
+cfg.profiles.defaults = cfg.profiles.defaults || {};
+Object.assign(cfg.profiles.defaults, {
+  colorScheme: 'Tokyo Night',
+  useAcrylic: true,
+  opacity: 88,
+  padding: '12, 12, 12, 12',
+  cursorShape: 'bar',
+  font: { face: 'Cascadia Code', size: 11.5 }
+});
+if (!Array.isArray(cfg.schemes)) cfg.schemes = [];
+const schemes = [
+  {
+    name: 'Tokyo Night',
+    background: '#1a1b26', foreground: '#c0caf5', selectionBackground: '#283457', cursorColor: '#bb9af7',
+    black: '#15161e', red: '#f7768e', green: '#9ece6a', yellow: '#e0af68',
+    blue: '#7aa2f7', purple: '#bb9af7', cyan: '#7dcfff', white: '#a9b1d6',
+    brightBlack: '#414868', brightRed: '#f7768e', brightGreen: '#9ece6a', brightYellow: '#e0af68',
+    brightBlue: '#7aa2f7', brightPurple: '#bb9af7', brightCyan: '#7dcfff', brightWhite: '#c0caf5'
+  },
+  {
+    name: 'Catppuccin Mocha',
+    background: '#1e1e2e', foreground: '#cdd6f4', selectionBackground: '#585b70', cursorColor: '#f5e0dc',
+    black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
+    blue: '#89b4fa', purple: '#cba6f7', cyan: '#94e2d5', white: '#bac2de',
+    brightBlack: '#585b70', brightRed: '#f38ba8', brightGreen: '#a6e3a1', brightYellow: '#f9e2af',
+    brightBlue: '#89b4fa', brightPurple: '#cba6f7', brightCyan: '#94e2d5', brightWhite: '#a6adc8'
+  }
+];
+for (const s of schemes) {
+  const idx = cfg.schemes.findIndex(x => x && x.name === s.name);
+  if (idx >= 0) cfg.schemes[idx] = s;
+  else cfg.schemes.push(s);
+}
+fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + '\n', 'utf8');
+"
         Write-Color "  ✓ Windows Terminal successfully updated: $targetWtPath" Green
         Write-Color "    (Themes: Tokyo Night + Catppuccin, Font: Cascadia Code, Acrylic: 88%, CopyOnSelect: On)" DarkGray
     } catch {
@@ -143,58 +91,78 @@ if (-not (Test-Path $profileDir)) {
     New-Item -ItemType Directory -Path $profileDir -Force | Out-Null
 }
 
-$profileSnippet = @"
+$profileSnippet = @'
 
 # =====================================================================
-# Claude Code 默认自动开启 --dangerously-skip-permissions (免权限审查模式)
+# Claude Code Wrapper (Auto --dangerously-skip-permissions)
 # =====================================================================
 function claude {
-    `$subcommands = @(
+    $subcommands = @(
         'doctor', 'auth', 'mcp', 'plugin', 'plugins',
         'update', 'upgrade', 'install', 'agents', 'attach',
         'rm', 'stop', 'kill', 'logs', 'respawn', 'purge',
-        'import', 'gateway', 'auto-mode', 'setup-token', 'ultrareview'
+        'import', 'gateway', 'auto-mode', 'setup-token', 'ultrareview',
+        '-v', '--version', '-h', '--help'
     )
-    `$firstArg = if (`$args.Count -gt 0) { "`$(`$args[0])".ToLower() } else { '' }
-    `$hasFlag = `$args -contains '--dangerously-skip-permissions' -or `$args -contains '--permission-mode'
+    $firstArg = if ($args.Count -gt 0) { "$($args[0])".ToLower() } else { '' }
+    $hasFlag = $args -contains '--dangerously-skip-permissions' -or $args -contains '--permission-mode'
 
-    `$targetExe = Join-Path `$env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe'
-    if (-not (Test-Path `$targetExe)) {
-        `$targetExe = 'claude.cmd'
+    $targetExe = Join-Path $env:APPDATA 'npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe'
+    if (-not (Test-Path $targetExe)) {
+        $targetExe = 'claude.cmd'
     }
 
-    if (`$subcommands -contains `$firstArg -or `$hasFlag) {
-        & `$targetExe @args
+    if ($subcommands -contains $firstArg -or $hasFlag) {
+        & $targetExe @args
     } else {
-        & `$targetExe --dangerously-skip-permissions @args
+        & $targetExe --dangerously-skip-permissions @args
     }
 }
 
 # =====================================================================
-# Modern Minimalist & Ultra-Fast Prompt (Tokyo Night & Cascadia Matched)
+# Modern Minimalist & Zero-Subprocess Prompt (Tokyo Night Matched)
 # =====================================================================
 function prompt {
-    `$e = [char]27
-    `$loc = (Get-Location).Path
-    `$homeDir = `$HOME
-    if (`$loc.StartsWith(`$homeDir, [System.StringComparison]::OrdinalIgnoreCase)) {
-        `$p = "~" + `$loc.Substring(`$homeDir.Length)
+    $e = [char]27
+    $arrow = [char]0x276F
+    $loc = (Get-Location).Path
+    $homeDir = $HOME
+    if ($loc.StartsWith($homeDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $p = "~" + $loc.Substring($homeDir.Length)
     } else {
-        `$p = `$loc
+        $p = $loc
     }
 
-    `$branch = git branch --show-current 2>`$null
-    `$gitInfo = if (`$branch) { " `$e[38;5;141m(`$branch)`$e[0m" } else { "" }
+    $branch = $null
+    $cur = $loc
+    while ($cur) {
+        $headFile = Join-Path $cur '.git\HEAD'
+        if (Test-Path $headFile) {
+            try {
+                $head = [System.IO.File]::ReadAllText($headFile).Trim()
+                if ($head.StartsWith('ref: refs/heads/')) {
+                    $branch = $head.Substring(16)
+                } elseif ($head.Length -ge 7) {
+                    $branch = $head.Substring(0, 7)
+                }
+            } catch {}
+            break
+        }
+        $parent = Split-Path -Parent $cur
+        if (-not $parent -or $parent -eq $cur) { break }
+        $cur = $parent
+    }
+    $gitInfo = if ($branch) { " $e[38;5;141m($branch)$e[0m" } else { "" }
 
-    "`n`$e[1;38;5;75m`$p`$e[0m`$gitInfo`n`$e[38;5;39m❯`$e[0m "
+    "`n$e[1;38;5;75m$p$e[0m$gitInfo`n$e[38;5;39m$arrow$e[0m "
 }
-"@
+'@
 
-$existingProfile = if (Test-Path $profilePath) { Get-Content -Path $profilePath -Raw -Encoding UTF8 } else { "" }
+$existingProfile = if (Test-Path $profilePath) { [System.IO.File]::ReadAllText($profilePath, [System.Text.Encoding]::UTF8) } else { "" }
 
-if ($existingProfile -notmatch "function\s+prompt") {
-    Add-Content -Path $profilePath -Value $profileSnippet -Encoding UTF8
-    Write-Color "  ✓ PowerShell Profile updated with modern prompt: $profilePath" Green
+if ($existingProfile -notmatch "function\s+prompt" -or $existingProfile -match "git branch --show-current") {
+    [System.IO.File]::WriteAllText($profilePath, $profileSnippet.TrimStart() + "`r`n", [System.Text.UTF8Encoding]::new($true))
+    Write-Color "  ✓ PowerShell Profile updated with modern zero-latency prompt: $profilePath" Green
 } else {
     Write-Color "  ✓ PowerShell Profile prompt already configured." Green
 }

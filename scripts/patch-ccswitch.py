@@ -20,16 +20,17 @@ def main():
         return 0
 
     statusline_path = os.path.join(home, '.claude', 'statusline.cjs').replace('\\', '/')
+    cmd_str = f'node "{statusline_path}"' if ' ' in statusline_path else f'node {statusline_path}'
     statusline_config = {
         "type": "command",
-        "command": f"node {statusline_path}",
+        "command": cmd_str,
         "padding": 0
     }
 
-    backup_path = f"{db_path}.bak-pulse-{int(time.time())}"
+    backup_path = f"{db_path}.bak-pulse"
     try:
         shutil.copy2(db_path, backup_path)
-        print(f"[+] Created backup: {backup_path}")
+        print(f"[+] Updated backup: {backup_path}")
     except Exception as e:
         print(f"[!] Warning: Failed to create database backup: {e}")
 

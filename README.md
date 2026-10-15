@@ -23,13 +23,13 @@
 
 无论你使用的是 Anthropic 原生 Claude 模型，还是通过 **CC Switch / 聚合网关** 接入的 **DeepSeek、GPT、GLM、Gemini** 等第三方模型，Claude Pulse 都能精准捕获缓存命中率、自动识别 **Effort 思考强度**、自动学习模型上下文上限，并将数据实时同步至外部终端。
 
-同时，**v1.2.0** 集成了常驻 **🧠 Effort 思考强度指示器**、**防虚标真实缓存命中率算法**（纳入 `cache_creation_input_tokens` 并杜绝 `>=99.5%` 四舍五入假满值），配合 **Windows Terminal 东京夜亚克力磨砂（Tokyo Night Acrylic）**、**Cascadia Code 编程连字** 与 **极速双行 Shell 提示符**，让你的开发环境**既拥有极致的丝滑性能，又兼备好莱坞级的黑客颜值**。
+同时，**v1.2.0** 集成了常驻 **Effort 思考强度档位显示**、**防虚标真实缓存命中率算法**（纳入 `cache_creation_input_tokens` 并杜绝 `>=99.5%` 四舍五入假满值），配合 **Windows Terminal 东京夜亚克力磨砂（Tokyo Night Acrylic）**、**Cascadia Code 编程连字** 与 **极速双行 Shell 提示符**，让你的开发环境**既拥有极致的丝滑性能，又兼备好莱坞级的黑客颜值**。
 
 ```text
  ~/Desktop/claude-pulse (main)
  ❯ claude
 
- 📦 DeepSeek 4.1 Flash │ 🧠 Effort Med │ Ctx [███░░░░░] 29.2% (291.6k/1M) │ 💾 Cache 99.6% (288.1k)
+ 📦 DeepSeek 4.1 Flash │ Medium │ Ctx [███░░░░░] 29.2% (291.6k/1M) │ 💾 Cache 99.6% (288.1k)
 ```
 
 *(Dinotty 终端右下角状态栏同步点亮)*:
