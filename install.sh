@@ -60,6 +60,7 @@ data.statusLine = {
 fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
 "
 echo -e "${GREEN}  ✓ Claude Code settings updated: $SETTINGS_PATH${NC}"
+node "$SCRIPT_DIR/scripts/patch-claude-fps.cjs" || true
 
 # Dinotty Integration
 echo -e "${YELLOW}==> [3/4] Checking Dinotty integration...${NC}"

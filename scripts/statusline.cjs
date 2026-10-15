@@ -206,43 +206,38 @@ const RAINBOW_ANSI = [
   '\x1b[38;2;200;130;180m'  // rainbow_violet: rgb(200, 130, 180)
 ];
 
-const ANIM_STATE_PATH = path.join(CLAUDE_DIR, 'effort_anim.json');
-
+// Exact 100ms (10 FPS) clock matching claude.exe Sa(100) -> Math.floor(a / 100)
 function nextAnimFrame() {
-  let frame = Math.floor(Date.now() / 100);
-  try {
-    if (fs.existsSync(ANIM_STATE_PATH)) {
-      const prev = JSON.parse(fs.readFileSync(ANIM_STATE_PATH, 'utf8'));
-      if (prev && typeof prev.frame === 'number') {
-        // Advance sequentially by 1 step per render so shimmer/rainbow never skips characters
-        frame = (prev.frame + 1) % 6300;
-      }
-    }
-    fs.writeFileSync(ANIM_STATE_PATH, JSON.stringify({ frame, time: Date.now() }), 'utf8');
-  } catch {}
-  return frame;
+  return Math.floor(Date.now() / 100);
 }
+
+// No-op SGR boundary marker (\x1b[0;0m) so claude.exe Dce(h) can also re-render
+// xhigh/max in-process at 100ms (10 FPS) via Sa(100) without spawning child processes
+const ANIM_MARKER = '\x1b[0;0m';
 
 // Exact port of claude.exe function he(d) (autoAccept-shimmer for "xhigh")
 function renderAutoAcceptShimmer(text, frame) {
   const chars = [...text];
-  const i = frame % chars.length;
-  return chars.map((c, h) => {
+  const g = chars.length + 4;
+  const i = frame % g;
+  const body = chars.map((c, h) => {
     const L = h === i;
     const oe = h === i - 1 || h === i + 1;
     const color = L ? EFFORT_RGB.autoAcceptShimmer : EFFORT_RGB.autoAccept;
     const weight = (L || oe) ? bold : '\x1b[22m';
     return `${weight}${color}${c}`;
   }).join('') + reset;
+  return `${ANIM_MARKER}${body}${ANIM_MARKER}`;
 }
 
 // Exact port of claude.exe function Pt(d) + Oj(t + f) (rainbow-animated for "max")
 function renderRainbowAnimated(text, frame) {
   const chars = [...text];
-  return chars.map((m, t) => {
+  const body = chars.map((m, t) => {
     const color = RAINBOW_ANSI[(t + frame) % RAINBOW_ANSI.length];
     return `${bold}${color}${m}`;
   }).join('') + reset;
+  return `${ANIM_MARKER}${body}${ANIM_MARKER}`;
 }
 
 function formatEffortBadge(effortRaw) {

@@ -76,6 +76,16 @@ fs.writeFileSync(file, JSON.stringify(data, null, 2) + '\n', 'utf8');
 "
 Write-Color "  ✓ Claude Code settings updated: $SettingsPath" Green
 
+# 2b. Patch Claude Code binary for native 100ms (10 FPS) xhigh/max animation
+$PatchFpsScript = Join-Path $PSScriptRoot "scripts\patch-claude-fps.cjs"
+if (Test-Path $PatchFpsScript) {
+    try {
+        node $PatchFpsScript
+    } catch {
+        Write-Color "  ! Native 10 FPS patch notice: $($_.Exception.Message)" Yellow
+    }
+}
+
 # 3. Install Dinotty Plugin (if Dinotty is present)
 Write-Color "==> [3/4] Checking Dinotty integration..." Yellow
 $DinottyPluginsDir = Join-Path $env:USERPROFILE ".dinotty\plugins"
@@ -131,8 +141,8 @@ Write-Color @"
 =======================================================
  1. Windows Terminal: Tokyo Night + Acrylic 88% + Cascadia Code
  2. Shell Prompt: Ultra-fast minimalist prompt with Git status
- 3. Claude Code: Universal multi-protocol statusline
-    📦 Model │ 🧠 Effort │ Ctx Progress │ 💾 Cache Hit Rate %
+ 3. Claude Code: Universal multi-protocol statusline (100ms 10 FPS)
+    📦 Model │ Effort │ Ctx Progress │ 💾 Cache Hit Rate %
  4. Dinotty Terminal: Live ⚡ Cache Sparkline Monitor ready!
 =======================================================
 "@ Green
