@@ -29,7 +29,7 @@
  ~/Desktop/claude-pulse (main)
  ❯ claude
 
- 📦 DeepSeek 4.1 Flash │ Medium │ Ctx [███░░░░░] 29.2% (291.6k/1M) │ 💾 Cache 99.6% (288.1k)
+ 📦 DeepSeek 4.1 Flash │ medium │ Ctx [███░░░░░] 29.2% (291.6k/1M) │ 💾 Cache 99.6% (288.1k)
 ```
 
 *(Dinotty 终端右下角状态栏同步点亮)*:

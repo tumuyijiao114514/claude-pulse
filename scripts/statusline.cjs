@@ -185,26 +185,105 @@ function resolveEffortLevel(data, rawModel) {
   return 'high';
 }
 
+// Claude Code built-in /effort slider exact TrueColor RGB palette (from claude.exe dark theme S)
+const EFFORT_RGB = {
+  warning:           '\x1b[38;2;255;193;7m',   // low:    rgb(255, 193, 7)
+  success:           '\x1b[38;2;78;186;101m',  // medium: rgb(78, 186, 101)
+  permission:        '\x1b[38;2;177;185;249m', // high:   rgb(177, 185, 249)
+  autoAccept:        '\x1b[38;2;175;135;255m', // xhigh base:    rgb(175, 135, 255)
+  autoAcceptShimmer: '\x1b[38;2;208;180;255m', // xhigh shimmer: #d0b4ff / rgb(208, 180, 255)
+  inactive:          '\x1b[38;2;153;153;153m'  // off:    rgb(153, 153, 153)
+};
+
+// Claude Code built-in rainbow-animated palette fU (from claude.exe Oj(t + f))
+const RAINBOW_ANSI = [
+  '\x1b[38;2;235;95;87m',   // rainbow_red:    rgb(235, 95, 87)
+  '\x1b[38;2;245;139;87m',  // rainbow_orange: rgb(245, 139, 87)
+  '\x1b[38;2;250;195;95m',  // rainbow_yellow: rgb(250, 195, 95)
+  '\x1b[38;2;145;200;130m', // rainbow_green:  rgb(145, 200, 130)
+  '\x1b[38;2;130;170;220m', // rainbow_blue:   rgb(130, 170, 220)
+  '\x1b[38;2;155;130;200m', // rainbow_indigo: rgb(155, 130, 200)
+  '\x1b[38;2;200;130;180m'  // rainbow_violet: rgb(200, 130, 180)
+];
+
+const ANIM_STATE_PATH = path.join(CLAUDE_DIR, 'effort_anim.json');
+
+function nextAnimFrame() {
+  let frame = Math.floor(Date.now() / 100);
+  try {
+    if (fs.existsSync(ANIM_STATE_PATH)) {
+      const prev = JSON.parse(fs.readFileSync(ANIM_STATE_PATH, 'utf8'));
+      if (prev && typeof prev.frame === 'number') {
+        // Advance sequentially by 1 step per render so shimmer/rainbow never skips characters
+        frame = (prev.frame + 1) % 6300;
+      }
+    }
+    fs.writeFileSync(ANIM_STATE_PATH, JSON.stringify({ frame, time: Date.now() }), 'utf8');
+  } catch {}
+  return frame;
+}
+
+// Exact port of claude.exe function he(d) (autoAccept-shimmer for "xhigh")
+function renderAutoAcceptShimmer(text, frame) {
+  const chars = [...text];
+  const i = frame % chars.length;
+  return chars.map((c, h) => {
+    const L = h === i;
+    const oe = h === i - 1 || h === i + 1;
+    const color = L ? EFFORT_RGB.autoAcceptShimmer : EFFORT_RGB.autoAccept;
+    const weight = (L || oe) ? bold : '\x1b[22m';
+    return `${weight}${color}${c}`;
+  }).join('') + reset;
+}
+
+// Exact port of claude.exe function Pt(d) + Oj(t + f) (rainbow-animated for "max")
+function renderRainbowAnimated(text, frame) {
+  const chars = [...text];
+  return chars.map((m, t) => {
+    const color = RAINBOW_ANSI[(t + frame) % RAINBOW_ANSI.length];
+    return `${bold}${color}${m}`;
+  }).join('') + reset;
+}
+
 function formatEffortBadge(effortRaw) {
-  const lvl = String(effortRaw || 'high').toLowerCase().trim();
-  const map = {
-    low:    { label: 'Low',    color: C.green },
-    medium: { label: 'Medium', color: C.blue },
-    med:    { label: 'Medium', color: C.blue },
-    high:   { label: 'High',   color: C.yellow },
-    xhigh:  { label: 'XHigh',  color: C.orange },
-    max:    { label: 'Max',    color: C.magenta },
-    auto:   { label: 'Auto',   color: C.cyan },
-    off:    { label: 'Off',    color: C.gray }
+  let lvl = String(effortRaw || 'high').toLowerCase().trim();
+  if (lvl === 'med') lvl = 'medium';
+
+  if (lvl === 'xhigh') {
+    const frame = nextAnimFrame();
+    return {
+      level: 'xhigh',
+      label: 'xhigh',
+      text: renderAutoAcceptShimmer('xhigh', frame)
+    };
+  }
+
+  if (lvl === 'max') {
+    const frame = nextAnimFrame();
+    return {
+      level: 'max',
+      label: 'max',
+      text: renderRainbowAnimated('max', frame)
+    };
+  }
+
+  const staticMap = {
+    low:    { label: 'low',    color: EFFORT_RGB.warning },
+    medium: { label: 'medium', color: EFFORT_RGB.success },
+    high:   { label: 'high',   color: EFFORT_RGB.permission },
+    auto:   { label: 'auto',   color: EFFORT_RGB.permission },
+    off:    { label: 'off',    color: EFFORT_RGB.inactive }
   };
-  const item = map[lvl] || {
-    label: lvl.charAt(0).toUpperCase() + lvl.slice(1),
-    color: C.yellow
+
+  const item = staticMap[lvl] || {
+    label: lvl,
+    color: EFFORT_RGB.permission
   };
+
   return {
     level: lvl,
     label: item.label,
-    text: `${item.color}${bold}${item.label}${reset}`
+    text: `${bold}${item.color}${item.label}${reset}`
   };
 }
 

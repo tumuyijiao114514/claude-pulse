@@ -54,7 +54,8 @@ try {
 data.statusLine = {
     type: 'command',
     command: 'node ' + '$CLAUDE_DIR/statusline.cjs',
-    padding: 0
+    padding: 0,
+    refreshInterval: 1
 };
 fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf8');
 "

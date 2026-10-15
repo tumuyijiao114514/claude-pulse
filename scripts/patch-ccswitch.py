@@ -24,7 +24,8 @@ def main():
     statusline_config = {
         "type": "command",
         "command": cmd_str,
-        "padding": 0
+        "padding": 0,
+        "refreshInterval": 1
     }
 
     backup_path = f"{db_path}.bak-pulse"
